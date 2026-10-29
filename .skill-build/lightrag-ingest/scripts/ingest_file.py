@@ -33,7 +33,13 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import request as urlrequest
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
+
+try:  # 直接执行脚本时 sys.path[0] 就是 scripts/；被当模块导入时补一下
+    from ops_log import OpsLog, read_events
+except ImportError:  # pragma: no cover
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from ops_log import OpsLog, read_events
 
 DEFAULT_BASE_URL = os.environ.get("LIGHTRAG_BASE_URL", "http://127.0.0.1:9621")
 TEXT_EXTS = {
@@ -48,6 +54,44 @@ PROTECTED_DIR_NAMES = {
 MAX_ESTIMATE_BYTES = 5 * 1024 * 1024
 POLL_INTERVAL = 3.0
 PROGRESS_EVERY = 15.0
+
+_OPS: OpsLog | None = None
+
+
+def _log(step: str, action: str, status: str = "ok", **kwargs) -> None:
+    if _OPS is not None:
+        _OPS.log(step, action, status, **kwargs)
+
+
+def classify_error(exc: Exception) -> tuple[str, str]:
+    """把异常归成一类，并给一条可执行的修复建议。
+
+    分类是给日志和用户看的：同一类错误应当得到同一句建议，不要让每次输出都不一样。
+    """
+    text = str(exc)
+    if isinstance(exc, UsageError):
+        if "不存在" in text or "空的" in text or "普通文件" in text:
+            return "input_missing", "确认文件路径存在且非空；聊天附件先确认落盘位置"
+        if "不接受" in text or "扩展名" in text:
+            return "unsupported_type", "转成 .md/.txt/.pdf，或改用服务端支持的解析引擎"
+        return "input_invalid", "检查输入参数后重试"
+    if isinstance(exc, ApiError):
+        if exc.status in (401, 403):
+            return "auth", "导出 LIGHTRAG_API_KEY 后重试"
+        if exc.status == 409:
+            return "duplicate", "用 --replace 替换，或把文件改名后再入库"
+        if exc.status == 413:
+            return "too_large", "拆分文件，或调大服务端 MAX_UPLOAD_SIZE"
+        if exc.status == 400:
+            return "bad_request", "核对文件类型与服务端配置；必要时换解析引擎"
+        if exc.status is None:
+            if "无法连接" in text:
+                return "server_unreachable", "启动服务（bash env_openai.sh），或用 --base-url 指向正确地址"
+            if "超时" in text:
+                return "timeout", "加 --timeout 3600 重试；仍超时就看服务端日志"
+    if "no usable text" in text.lower() or "没有可读文本" in text:
+        return "parse_empty", "扫描件/空内容：先 OCR，或换 docling/mineru 引擎"
+    return "unknown", "查看服务端日志（默认 lightrag.log）中同时间的堆栈"
 
 
 class UsageError(Exception):
@@ -384,6 +428,7 @@ def purge_document(
     try:
         found = find_documents_by_name(base_url, doc_name)
         report["doc_ids"] = [doc.get("id") for doc in found]
+        _log("purge", "lookup", detail={"doc_name": doc_name, "doc_ids": report["doc_ids"]})
         if not found:
             report["record_removed"] = True  # 本来就没有，等于已清理
         else:
@@ -396,10 +441,24 @@ def purge_document(
         removed, skipped = _clean_local_artifacts(input_directory, doc_name, root)
         report["artifacts_removed"] = removed
         report["artifacts_skipped"] = skipped
+        _log(
+            "purge",
+            "done",
+            status="ok" if report["record_removed"] else "fail",
+            detail={
+                "doc_name": doc_name,
+                "doc_ids": report["doc_ids"],
+                "record_removed": report["record_removed"],
+                "artifacts_removed": removed,
+                "artifacts_skipped": skipped,
+            },
+        )
     except ApiError as exc:
         report["error"] = f"{exc.message}：{exc.detail}" if exc.detail else exc.message
+        _log("purge", "fail", status="fail", error=report["error"])
     except Exception as exc:  # 清理失败不能掩盖原始错误
         report["error"] = f"{type(exc).__name__}: {exc}"
+        _log("purge", "fail", status="fail", error=report["error"])
     return report
 
 
@@ -583,7 +642,7 @@ def inspect_file(path: Path, base_url: str, project_dir: str | None = None) -> d
         )
     warning = "；".join(warnings) or None
 
-    return {
+    info = {
         "file": str(path.resolve()),
         "doc_name": path.name,
         "doc_type": doc_type_for(ext),
@@ -608,6 +667,20 @@ def inspect_file(path: Path, base_url: str, project_dir: str | None = None) -> d
         "service_ok": service_ok,
         "service_note": service_note,
     }
+    _log(
+        "inspect",
+        "done",
+        status="ok" if service_ok else "warn",
+        detail={
+            "file": info["doc_name"],
+            "doc_type": info["doc_type"],
+            "estimated_tokens": info["estimated_tokens"],
+            "has_conflict": info["has_conflict"],
+            "warning": info["warning"],
+            "service_ok": service_ok,
+        },
+    )
+    return info
 
 
 def _human_size(num: int) -> str:
@@ -702,11 +775,15 @@ def ingest_file(
     labels_before = get_graph_labels(base_url) if wait else None
     purge_report: dict | None = None
     backup_path: str | None = None
+    _log("ingest", "upload_start", detail={"file": path.name, "replace": replace})
     try:
         response = upload_file(base_url, path)
     except ApiError as exc:
         if exc.status != 409 or not replace:
+            _log("ingest", "upload_fail", status="fail",
+                 error=str(exc), detail={"status": exc.status, "file": path.name})
             raise
+        _log("ingest", "conflict", status="warn", detail={"file": path.name})
         # 替换是“先删后传”：先留一份旧副本，删完传失败时至少还有东西可恢复
         backup_path = _backup_source(info.get("input_dir") or "", path)
         purge_report = purge_document(
@@ -726,11 +803,14 @@ def ingest_file(
                 if backup_path
                 else "旧文档已删除且没有可用的本地副本"
             )
+            _log("ingest", "replace_fail", status="fail",
+                 error=str(replacement_error), detail={"backup": backup_path})
             raise ApiError(
                 replacement_error.status, f"替换失败：{hint}", replacement_error.detail
             ) from None
 
     track_id = response.get("track_id") or ""
+    _log("ingest", "upload_ok", detail={"file": path.name, "track_id": track_id})
     result = {
         **info,
         "stage": "upload",
@@ -769,11 +849,24 @@ def ingest_file(
                 "entities_after": len(labels_after),
                 "entities_added": len(labels_after - labels_before),
             }
+            _log("ingest", "verify", detail={"file": path.name, **result["graph"]})
     elif purge_on_failure:
         result["purge"] = purge_document(
             base_url, path.name, info.get("input_dir"),
             project_dir=info.get("project_dir"),
         )
+    _log(
+        "ingest",
+        "wait_done",
+        status="ok" if result["status"] == "processed" else "fail",
+        detail={
+            "file": path.name,
+            "status": result["status"],
+            "doc_id": result["doc_id"],
+            "chunks": result["chunks_count"],
+        },
+        error=result["error"],
+    )
     return result
 
 
@@ -865,6 +958,145 @@ def _suggest(result: dict) -> str:
     return "查看服务端日志（默认 lightrag.log，本机可能已挪到 repo-src/lightrag.log）中同时间的堆栈；模型/embedding 配置或文件损坏是最常见原因"
 
 
+# ------------------------------------------------------------------------ query
+
+
+def run_query(
+    question: str,
+    base_url: str,
+    *,
+    mode: str = "mix",
+    expect: list[str] | None = None,
+    only_context: bool = False,
+) -> dict:
+    """检索并记录一条 query 事件。
+
+    ``coverage`` 只描述“图谱里有没有这些实体”，**不判断相关性**：
+    实体缺失可能是知识缺口，也可能是用户问的根本是另一个领域。相关性由调用方
+    （模型/用户）判断——脚本给出事实，不给“该不该回补”的结论。
+    """
+    payload = {"query": question, "mode": mode, "stream": False}
+    if only_context:
+        payload["only_need_context"] = True
+    data = _request(
+        base_url,
+        "/query",
+        method="POST",
+        body=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        timeout=180,
+    )
+    answer = data.get("response") or ""
+
+    missing: list[str] = []
+    for name in expect or []:
+        labels = _request(
+            base_url, f"/graph/label/search?q={quote(name)}&limit=5", timeout=15
+        )
+        if not labels:
+            missing.append(name)
+
+    if not expect:
+        coverage = "unknown"
+    elif not missing:
+        coverage = "covered"
+    elif len(missing) == len(expect):
+        coverage = "none"
+    else:
+        coverage = "partial"
+
+    result = {
+        "question": question,
+        "mode": mode,
+        "answer": answer,
+        "answer_chars": len(answer),
+        "missing_entities": missing,
+        "coverage": coverage,
+        "gap": coverage in {"partial", "none"},
+    }
+    _log(
+        "query",
+        "done",
+        status="warn" if missing else "ok",
+        detail={
+            "question": question,
+            "mode": mode,
+            "answer_chars": len(answer),
+            "missing_entities": missing,
+            "coverage": coverage,
+        },
+    )
+    return result
+
+
+def run_backfill(
+    text: str,
+    base_url: str,
+    *,
+    source: str = "backfill",
+    timeout: float = 1800,
+    quiet: bool = False,
+) -> dict:
+    """把补充内容作为一篇新文档写回 LightRAG（图谱回补）。"""
+    file_source = f"{source}-{int(time.time())}"
+    _log("backfill", "start", detail={"source": file_source, "chars": len(text)})
+    response = _request(
+        base_url,
+        "/documents/text",
+        method="POST",
+        body=json.dumps({"text": text, "file_source": file_source}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        timeout=120,
+    )
+    track_id = response.get("track_id") or ""
+    result = {
+        "source": file_source,
+        "track_id": track_id,
+        "status": "queued",
+        "doc_id": None,
+        "error": None,
+    }
+    if track_id:
+        document = wait_for_document(base_url, track_id, timeout, quiet=quiet)
+        if document is None:
+            result.update(status="timeout", error="等待超时，补充内容可能仍在处理")
+        else:
+            result.update(
+                status=_status_of(document),
+                doc_id=document.get("id"),
+                error=document.get("error_msg") or document.get("error"),
+            )
+    _log(
+        "backfill",
+        "done",
+        status="ok" if result["status"] == "processed" else "fail",
+        detail={"source": result["source"], "status": result["status"], "doc_id": result["doc_id"]},
+        error=result["error"],
+    )
+    return result
+
+
+def print_query_human(result: dict) -> None:
+    print(result["answer"].strip() or "（没有返回内容）")
+    if result.get("coverage") in {"partial", "none"}:
+        print()
+        print(f"⚠ 知识库未覆盖：{', '.join(result['missing_entities'])}")
+        print("先判断相关性，再决定是否回补：")
+        print("  - 与知识库主题相关、只是缺内容 → 知识缺口，用户确认后可 backfill")
+        print("  - 与知识库主题无关（另一个领域的问题/内容）→ 无关内容，不要回补，只上报")
+
+
+def print_backfill_human(result: dict) -> None:
+    if result["status"] == "processed":
+        print(f"回补完成：{result['source']}")
+        print(f"文档 ID：{result['doc_id']}")
+        print("下一步：重新执行 query 验证缺口是否已补上。")
+        return
+    print(f"回补未完成：{result['source']}")
+    print(f"状态：{result['status']}")
+    print(f"原因：{result.get('error') or '未知'}")
+
+
 # --------------------------------------------------------------------------- CLI
 
 
@@ -912,12 +1144,58 @@ def build_parser() -> argparse.ArgumentParser:
     purge_cmd.add_argument("file")
     purge_cmd.add_argument("--json", action="store_true", help="输出 JSON")
     _add_connection_options(purge_cmd, in_subcommand=True)
+
+    query_cmd = sub.add_parser("query", help="检索知识库并记录日志；可检查图谱缺口")
+    query_cmd.add_argument("question")
+    query_cmd.add_argument(
+        "--mode", default="mix", choices=["local", "global", "hybrid", "naive", "mix"]
+    )
+    query_cmd.add_argument(
+        "--expect", default="", help="逗号分隔的实体名；缺失即判定图谱缺口"
+    )
+    query_cmd.add_argument("--context", action="store_true", help="只取检索上下文，不生成答案")
+    query_cmd.add_argument("--json", action="store_true", help="输出 JSON")
+    _add_connection_options(query_cmd, in_subcommand=True)
+
+    backfill_cmd = sub.add_parser("backfill", help="把补充内容写回知识库（图谱回补）")
+    backfill_cmd.add_argument("file", nargs="?", default=None, help="补充内容文件（与 --text 二选一）")
+    backfill_cmd.add_argument("--text", default=None, help="直接给补充文本")
+    backfill_cmd.add_argument("--source", default="backfill", help="来源标记，默认 backfill")
+    backfill_cmd.add_argument("--timeout", type=float, default=1800, help="等待上限（秒）")
+    backfill_cmd.add_argument("--json", action="store_true", help="输出 JSON")
+    _add_connection_options(backfill_cmd, in_subcommand=True)
+
+    log_cmd = sub.add_parser("log", help="查看最近的运行日志")
+    log_cmd.add_argument("--limit", type=int, default=50)
+    log_cmd.add_argument("--json", action="store_true", help="输出 JSON")
+    _add_connection_options(log_cmd, in_subcommand=True)
+
+    note_cmd = sub.add_parser("note", help="追加一条用户决策/批注到日志")
+    note_cmd.add_argument("text")
+    _add_connection_options(note_cmd, in_subcommand=True)
     return parser
 
 
+def _latest_log_path(project_dir: Path) -> Path:
+    log_dir = Path(project_dir) / ".lightrag-ingest" / "logs"
+    files = sorted(log_dir.glob("ops-*.jsonl"))
+    return files[-1] if files else log_dir / "ops-empty.jsonl"
+
+
 def main(argv: list[str] | None = None) -> int:
+    global _OPS
     args = build_parser().parse_args(argv)
-    path = Path(args.file).expanduser()
+    project_root = Path(
+        args.project_dir or os.environ.get("LIGHTRAG_PROJECT_DIR") or os.getcwd()
+    ).expanduser().resolve()
+    _OPS = OpsLog(project_root, args.command)
+    _OPS.log(
+        "cli",
+        "start",
+        detail={"argv": sys.argv[1:], "cwd": os.getcwd(), "project_dir": str(project_root)},
+    )
+
+    path = Path(args.file).expanduser() if getattr(args, "file", None) else None
 
     try:
         if args.command == "inspect":
@@ -926,6 +1204,61 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(info, ensure_ascii=False, indent=2))
             else:
                 print_inspect_human(info)
+            return 0
+
+        if args.command == "query":
+            expect = [item.strip() for item in (args.expect or "").split(",") if item.strip()]
+            result = run_query(
+                args.question, args.base_url,
+                mode=args.mode, expect=expect, only_context=args.context,
+            )
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                print_query_human(result)
+            return 0
+
+        if args.command == "backfill":
+            text = args.text
+            if text is None and path is not None:
+                if not path.is_file():
+                    raise UsageError(f"文件不存在：{path}")
+                extracted, method, _ = extract_text(path)
+                if not extracted or not extracted.strip():
+                    raise UsageError(f"没有提取到可回补的文本（{method}）")
+                text = extracted
+            if not text or not text.strip():
+                raise UsageError("需要 --text 或一个可读文件")
+            result = run_backfill(
+                text, args.base_url, source=args.source,
+                timeout=args.timeout, quiet=args.json,
+            )
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                print_backfill_human(result)
+            return 0 if result["status"] == "processed" else 1
+
+        if args.command == "log":
+            events = read_events(_latest_log_path(project_root), args.limit)
+            if args.json:
+                print(json.dumps(events, ensure_ascii=False, indent=2))
+            else:
+                for event in events:
+                    detail = json.dumps(event.get("detail") or {}, ensure_ascii=False)
+                    print(
+                        f"{event.get('ts')}  {event.get('step')}/{event.get('action')}"
+                        f"  {event.get('status')}  {detail[:120]}"
+                    )
+                    if event.get("error"):
+                        print(f"    error: {event['error']}")
+                if not events:
+                    print("暂无日志")
+            return 0
+
+        if args.command == "note":
+            _OPS.note(args.text)
+            print(f"已记录：{args.text}")
             return 0
 
         if args.command == "purge":
@@ -969,16 +1302,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result["status"] in {"processed", "queued"} else 1
 
     except UsageError as exc:
+        category, suggestion = classify_error(exc)
+        _log("cli", "fail", status="fail", error=str(exc),
+             detail={"category": category}, suggestion=suggestion)
         print(f"输入无效：{exc}", file=sys.stderr)
+        print(f"建议：{suggestion}", file=sys.stderr)
         return 2
     except ApiError as exc:
         message = exc.message + (f"：{exc.detail}" if exc.detail else "")
+        category, suggestion = classify_error(exc)
+        _log("cli", "fail", status="fail", error=message,
+             detail={"category": category}, suggestion=suggestion)
         print(f"请求失败：{message}", file=sys.stderr)
-        if exc.status == 409:
-            print("提示：同名文档已存在，用 --replace 替换，或先删除旧文档", file=sys.stderr)
-        elif exc.status in (401, 403):
-            print("提示：服务开启了鉴权，请导出 LIGHTRAG_API_KEY", file=sys.stderr)
+        print(f"建议：{suggestion}", file=sys.stderr)
         return 1
+    finally:
+        _log("cli", "end", detail={"command": args.command})
 
 
 if __name__ == "__main__":
