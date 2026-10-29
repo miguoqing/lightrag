@@ -1,0 +1,31 @@
+{
+  "expectations": [
+    {
+      "text": "执行了 inspect（只读），没有在确认前上传",
+      "passed": true,
+      "evidence": "actions.md 只有 inspect 与查询命令；未出现 upload/ingest"
+    },
+    {
+      "text": "确认表包含文件名、文档类型、预估 token、目标知识库",
+      "passed": true,
+      "evidence": "response.md 的确认表含四个字段"
+    },
+    {
+      "text": "明确询问用户是否入库并停在该步骤",
+      "passed": true,
+      "evidence": "结尾‘确认入库吗？’并给出 ingest 命令"
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 0,
+    "total": 3,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {},
+  "timing": {
+    "executor_duration_seconds": 0,
+    "grader_duration_seconds": 0,
+    "total_duration_seconds": 0
+  }
+}

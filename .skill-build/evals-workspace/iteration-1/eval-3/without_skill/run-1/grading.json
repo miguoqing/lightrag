@@ -1,0 +1,31 @@
+{
+  "expectations": [
+    {
+      "text": "对两个文件分别给出了确认信息",
+      "passed": false,
+      "evidence": "没有产出 response.md；知识库直接出现两篇 processed 文档"
+    },
+    {
+      "text": "没有在用户确认前写入任何文件",
+      "passed": false,
+      "evidence": "sample.md 与 spec.docx 在其运行期间被写入并 processed（track 13:57:39）"
+    },
+    {
+      "text": "明确说明会逐个处理",
+      "passed": false,
+      "evidence": "子代理在写入后停在轮询，未产出逐个确认说明"
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 3,
+    "total": 3,
+    "pass_rate": 0.0
+  },
+  "execution_metrics": {},
+  "timing": {
+    "executor_duration_seconds": 0,
+    "grader_duration_seconds": 0,
+    "total_duration_seconds": 0
+  }
+}

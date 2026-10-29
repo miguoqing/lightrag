@@ -1,0 +1,31 @@
+{
+  "expectations": [
+    {
+      "text": "指出 .xyz 不在服务端支持列表并给出可用后缀",
+      "passed": true,
+      "evidence": "response.md 列出完整可用后缀，退出码 2"
+    },
+    {
+      "text": "没有执行上传或清理",
+      "passed": true,
+      "evidence": "actions.md 仅 inspect 与分页查询；未 purge/未上传"
+    },
+    {
+      "text": "没有把失败说成成功",
+      "passed": true,
+      "evidence": "报告‘入库失败：broken.xyz’并给出后续选项"
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 0,
+    "total": 3,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {},
+  "timing": {
+    "executor_duration_seconds": 0,
+    "grader_duration_seconds": 0,
+    "total_duration_seconds": 0
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "expectations": [
+    {
+      "text": "对两个文件分别给出了确认信息",
+      "passed": true,
+      "evidence": "response.md 给出【1/2】sample.md 与【2/2】spec.docx 两张确认表"
+    },
+    {
+      "text": "没有在用户确认前写入任何文件",
+      "passed": true,
+      "evidence": "actions.md 仅 inspect；response 明确‘还没有写入任何数据’"
+    },
+    {
+      "text": "明确说明会逐个处理",
+      "passed": true,
+      "evidence": "‘多文件会逐个确认、逐个入库’"
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 0,
+    "total": 3,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {},
+  "timing": {
+    "executor_duration_seconds": 0,
+    "grader_duration_seconds": 0,
+    "total_duration_seconds": 0
+  }
+}

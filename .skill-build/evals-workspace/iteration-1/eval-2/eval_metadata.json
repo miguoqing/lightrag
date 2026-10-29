@@ -1,0 +1,10 @@
+{
+  "eval_id": 2,
+  "eval_name": "scanned-pdf-warning",
+  "prompt": "把 scan.pdf 加进知识库，先看看占多少 token",
+  "assertions": [
+    "提示 PDF 没有文本层/疑似扫描件",
+    "预估 token 显示为“未知”而不是具体数字",
+    "没有在确认前上传"
+  ]
+}

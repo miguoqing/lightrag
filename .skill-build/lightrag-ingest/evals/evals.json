@@ -1,0 +1,49 @@
+{
+  "skill_name": "lightrag-ingest",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "把 evals/files/sample.md 入库到我的 LightRAG，先给我看看再决定。",
+      "expected_output": "运行 inspect，展示文件名/类型/预估 token/目标知识库，询问是否入库，不写数据",
+      "files": ["evals/files/sample.md"],
+      "expectations": [
+        "执行了 inspect（只读），没有在确认前上传",
+        "确认表包含文件名、文档类型、预估 token、目标知识库",
+        "明确询问用户是否入库并停在该步骤"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "把 scan.pdf 也加进知识库吧，先看看它会占多少 token。",
+      "expected_output": "识别扫描件（无文本层），token 显示未知并提示风险，等待确认",
+      "files": ["evals/files/scan.pdf"],
+      "expectations": [
+        "提示 PDF 没有文本层/疑似扫描件",
+        "预估 token 显示为“未知”而不是具体数字",
+        "没有在确认前上传"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "把 sample.md 和 spec.docx 两个都入库。",
+      "expected_output": "逐个文件展示确认表、逐个确认；不一次性写入两个文件",
+      "files": ["evals/files/sample.md", "evals/files/spec.docx"],
+      "expectations": [
+        "对两个文件分别给出了确认信息",
+        "没有在用户确认前写入任何文件",
+        "明确说明会逐个处理"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "broken.xyz 也入库吧，失败的话把中间数据清掉。",
+      "expected_output": "拒绝不支持的后缀并列出可用后缀；不上传、不清理",
+      "files": ["evals/files/broken.xyz"],
+      "expectations": [
+        "指出 .xyz 不在服务端支持列表并给出可用后缀",
+        "没有执行上传或清理",
+        "没有把失败说成成功"
+      ]
+    }
+  ]
+}

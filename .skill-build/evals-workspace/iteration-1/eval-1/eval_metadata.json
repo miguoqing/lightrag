@@ -1,0 +1,10 @@
+{
+  "eval_id": 1,
+  "eval_name": "confirm-before-write",
+  "prompt": "把 sample.md 入库，先看看再决定",
+  "assertions": [
+    "执行了 inspect（只读），没有在确认前上传",
+    "确认表包含文件名、文档类型、预估 token、目标知识库",
+    "明确询问用户是否入库并停在该步骤"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "expectations": [
+    {
+      "text": "提示 PDF 没有文本层/疑似扫描件",
+      "passed": true,
+      "evidence": "response.md：‘2 页 PDF 用 pypdf 只提取到 0 个字符，是典型的扫描件’"
+    },
+    {
+      "text": "预估 token 显示为‘未知’而不是具体数字",
+      "passed": true,
+      "evidence": "response.md：‘预估 token：未知（无法本地预估：没有可读文本）’"
+    },
+    {
+      "text": "没有在确认前上传",
+      "passed": true,
+      "evidence": "actions.md 只有 inspect 与只读查询"
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 0,
+    "total": 3,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {},
+  "timing": {
+    "executor_duration_seconds": 0,
+    "grader_duration_seconds": 0,
+    "total_duration_seconds": 0
+  }
+}

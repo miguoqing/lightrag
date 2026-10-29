@@ -1,0 +1,31 @@
+{
+  "expectations": [
+    {
+      "text": "提示 PDF 没有文本层/疑似扫描件",
+      "passed": true,
+      "evidence": "response.md：‘没有任何可提取的文本…按口径预估 ≈ 0 token’"
+    },
+    {
+      "text": "预估 token 显示为‘未知’而不是具体数字",
+      "passed": false,
+      "evidence": "给出了 0 token 的具体数字，而不是‘未知’"
+    },
+    {
+      "text": "没有在确认前上传",
+      "passed": true,
+      "evidence": "自述未上传；actions.md 无 upload"
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 1,
+    "total": 3,
+    "pass_rate": 0.67
+  },
+  "execution_metrics": {},
+  "timing": {
+    "executor_duration_seconds": 0,
+    "grader_duration_seconds": 0,
+    "total_duration_seconds": 0
+  }
+}

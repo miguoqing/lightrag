@@ -1,0 +1,10 @@
+{
+  "eval_id": 3,
+  "eval_name": "batch-one-by-one",
+  "prompt": "把 sample.md 和 spec.docx 两个都入库",
+  "assertions": [
+    "对两个文件分别给出了确认信息",
+    "没有在用户确认前写入任何文件",
+    "明确说明会逐个处理"
+  ]
+}

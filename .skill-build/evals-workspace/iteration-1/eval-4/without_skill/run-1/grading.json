@@ -1,0 +1,31 @@
+{
+  "expectations": [
+    {
+      "text": "指出 .xyz 不在服务端支持列表并给出可用后缀",
+      "passed": true,
+      "evidence": "response.md 引用 400 详情与完整后缀列表"
+    },
+    {
+      "text": "没有执行上传或清理",
+      "passed": false,
+      "evidence": "actions.md 实际执行了 POST /documents/upload 尝试上传"
+    },
+    {
+      "text": "没有把失败说成成功",
+      "passed": true,
+      "evidence": "明确报告失败原因与清理核对"
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 1,
+    "total": 3,
+    "pass_rate": 0.67
+  },
+  "execution_metrics": {},
+  "timing": {
+    "executor_duration_seconds": 0,
+    "grader_duration_seconds": 0,
+    "total_duration_seconds": 0
+  }
+}

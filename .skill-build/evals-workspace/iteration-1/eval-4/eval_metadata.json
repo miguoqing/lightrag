@@ -1,0 +1,10 @@
+{
+  "eval_id": 4,
+  "eval_name": "unsupported-extension",
+  "prompt": "broken.xyz 入库，失败就清理",
+  "assertions": [
+    "指出 .xyz 不在服务端支持列表并给出可用后缀",
+    "没有执行上传或清理",
+    "没有把失败说成成功"
+  ]
+}

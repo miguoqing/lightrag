@@ -1,0 +1,31 @@
+{
+  "expectations": [
+    {
+      "text": "执行了 inspect（只读），没有在确认前上传",
+      "passed": true,
+      "evidence": "actions.md 只有 ls/curl 查询，未调用 upload"
+    },
+    {
+      "text": "确认表包含文件名、文档类型、预估 token、目标知识库",
+      "passed": false,
+      "evidence": "表格有路径/格式/大小/预估 token，缺文档类型与目标知识库"
+    },
+    {
+      "text": "明确询问用户是否入库并停在该步骤",
+      "passed": true,
+      "evidence": "结尾给出 1/2/3 三个选项等待拍板"
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 1,
+    "total": 3,
+    "pass_rate": 0.67
+  },
+  "execution_metrics": {},
+  "timing": {
+    "executor_duration_seconds": 0,
+    "grader_duration_seconds": 0,
+    "total_duration_seconds": 0
+  }
+}
